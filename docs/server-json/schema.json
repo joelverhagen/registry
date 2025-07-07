@@ -88,7 +88,8 @@
               "npm",
               "docker",
               "pypi",
-              "homebrew"
+              "homebrew",
+              "nuget"
             ],
             "description": "Package registry type",
             "example": "npm"
@@ -105,10 +106,11 @@
           },
           "runtime_hint": {
             "type": "string",
-            "description": "Hint for appropriate runtime (e.g., npx, uvx)",
+            "description": "Hint for appropriate runtime (e.g., npx, uvx, dnx)",
             "examples": [
               "npx",
-              "uvx"
+              "uvx",
+              "dnx"
             ]
           },
           "runtime_arguments": {

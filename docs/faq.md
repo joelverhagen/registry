@@ -15,7 +15,7 @@ The MCP Registry is the official centralized metadata repository for publicly-ac
 
 ### Is the MCP Registry a package registry?
 
-No. The MCP Registry stores metadata about MCP servers and references to where they're hosted (npm, PyPI, Docker Hub, etc.), but does not host the actual source code or packages.
+No. The MCP Registry stores metadata about MCP servers and references to where they're hosted (npm, PyPI, NuGet, Docker Hub, etc.), but does not host the actual source code or packages.
 
 ### Who should use the MCP Registry directly?
 
@@ -37,7 +37,7 @@ Servers are published by submitting a `server.json` file through our CLI tool. T
 
 1. GitHub authentication
 2. A public GitHub repository (even for closed-source servers - just for the metadata)
-3. Your server package published to a supported registry (npm, PyPI, Docker Hub, etc.)
+3. Your server package published to a supported registry (npm, PyPI, NuGet, Docker Hub, etc.)
 4. Optional: DNS verification for custom namespacing
 
 ### What namespaces are available?
@@ -54,6 +54,7 @@ No. While open source code is encouraged, it is not required for either locally 
 
 - npm (Node.js packages)
 - PyPI (Python packages)
+- NuGet.org (.NET packages)
 - GitHub Container Registry (GHCR)
 
 More can be added as the community desires; feel free to open an issue if you are interested in building support for another registry.

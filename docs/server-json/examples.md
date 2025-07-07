@@ -179,6 +179,41 @@
 }
 ```
 
+## NuGet (.NET) Package Example
+
+The `dnx` tool ships with the .NET 10 SDK, starting with Preview 6.
+
+```json
+{
+  "name": "Knapcode.SampleMcpServer",
+  "description": "Sample NuGet MCP server for a random number and random weather",
+  "repository": {
+    "url": "https://github.com/joelverhagen/Knapcode.SampleMcpServer",
+    "source": "github"
+  },
+  "version_detail": {
+    "version": "0.3.0",
+    "release_date": "2025-07-02T18:54:28.00Z"
+  },
+  "packages": [
+    {
+      "registry_name": "nuget",
+      "name": "Knapcode.SampleMcpServer",
+      "version": "0.3.0-beta",
+      "runtime_hint": "dnx",
+      "environment_variables": [
+        {
+          "name": "WEATHER_CHOICES",
+          "description": "Comma separated list of weather descriptions to randomly select.",
+          "is_required": true,
+          "is_secret": false
+        }
+      ]
+    }
+  ]
+}
+```
+
 ## Complex Docker Server with Multiple Arguments
 
 ```json
