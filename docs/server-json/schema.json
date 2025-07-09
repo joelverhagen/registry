@@ -204,8 +204,7 @@
         {
           "type": "object",
           "required": [
-            "type",
-            "value_hint"
+            "type"
           ],
           "properties": {
             "type": {
