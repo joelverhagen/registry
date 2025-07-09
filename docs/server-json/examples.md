@@ -40,11 +40,6 @@ Suppose your MCP server application requires a `mcp start` CLI arguments to star
 {
   "name": "Knapcode.SampleMcpServer",
   "description": "Sample NuGet MCP server for a random number and random weather",
-  "repository": {
-    "url": "https://github.com/joelverhagen/Knapcode.SampleMcpServer",
-    "source": "github",
-    "id": "def456gh-ijkl-7890-mnop-qrstuvwxyz13"
-  },
   "version_detail": {
     "version": "0.4.0-beta"
   },
@@ -53,7 +48,6 @@ Suppose your MCP server application requires a `mcp start` CLI arguments to star
       "registry_name": "nuget",
       "name": "Knapcode.SampleMcpServer",
       "version": "0.4.0-beta",
-      "runtime_hint": "dnx",
       "package_arguments": [
         {
           "type": "positional",
@@ -69,7 +63,7 @@ Suppose your MCP server application requires a `mcp start` CLI arguments to star
 }
 ```
 
-This will effectively instruct the MCP client to execute `dnx Knapcode.SampleMcpServer@0.4.0-beta -- mcp start`.
+This will essentially instruct the MCP client to execute `dnx Knapcode.SampleMcpServer@0.4.0-beta -- mcp start` instead of the default `dnx Knapcode.SampleMcpServer@0.4.0-beta` (when no `package_arguments` are provided).
 
 ## Filesystem Server with Multiple Packages
 
