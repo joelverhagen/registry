@@ -42,7 +42,8 @@ Suppose your MCP server application requires a `mcp start` CLI arguments to star
   "description": "Sample NuGet MCP server for a random number and random weather",
   "repository": {
     "url": "https://github.com/joelverhagen/Knapcode.SampleMcpServer",
-    "source": "github"
+    "source": "github",
+    "id": "def456gh-ijkl-7890-mnop-qrstuvwxyz13"
   },
   "version_detail": {
     "version": "0.4.0-beta"
@@ -223,7 +224,8 @@ The `dnx` tool ships with the .NET 10 SDK, starting with Preview 6.
   "description": "Sample NuGet MCP server for a random number and random weather",
   "repository": {
     "url": "https://github.com/joelverhagen/Knapcode.SampleMcpServer",
-    "source": "github"
+    "source": "github",
+    "id": "def456gh-ijkl-7890-mnop-qrstuvwxyz13"
   },
   "version_detail": {
     "version": "0.3.0-beta"
