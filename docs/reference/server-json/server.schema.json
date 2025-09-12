@@ -87,6 +87,7 @@
       "additionalProperties": false,
       "required": [
         "registry_type",
+        "registry_base_url",
         "identifier",
         "version",
         "transport"
