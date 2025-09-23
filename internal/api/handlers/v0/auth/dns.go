@@ -2,10 +2,13 @@ package auth
 
 import (
 	"context"
+	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"regexp"
@@ -17,6 +20,24 @@ import (
 	"github.com/modelcontextprotocol/registry/internal/auth"
 	"github.com/modelcontextprotocol/registry/internal/config"
 )
+
+// CryptoAlgorithm represents the cryptographic algorithm used for a public key
+type CryptoAlgorithm string
+
+const (
+	AlgorithmEd25519 CryptoAlgorithm = "ed25519"
+
+	// ECDSA with NIST P-384 curve
+	// public key is in compressed format
+	// signature is in R || S format
+	AlgorithmECDSAP384 CryptoAlgorithm = "ecdsap384"
+)
+
+// PublicKeyInfo contains a public key along with its algorithm type
+type PublicKeyInfo struct {
+	Algorithm CryptoAlgorithm
+	Key       any
+}
 
 // DNSTokenExchangeInput represents the input for DNS-based authentication
 type DNSTokenExchangeInput struct {
@@ -130,8 +151,8 @@ func (h *DNSAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, s
 	// Verify signature with any of the public keys
 	messageBytes := []byte(timestamp)
 	signatureValid := false
-	for _, publicKey := range publicKeys {
-		if ed25519.Verify(publicKey, messageBytes, signature) {
+	for _, publicKeyInfo := range publicKeys {
+		if publicKeyInfo.VerifySignature(messageBytes, signature) {
 			signatureValid = true
 			break
 		}
@@ -160,29 +181,72 @@ func (h *DNSAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, s
 	return tokenResponse, nil
 }
 
-// parsePublicKeysFromTXT parses Ed25519 public keys from DNS TXT records
-func (h *DNSAuthHandler) parsePublicKeysFromTXT(txtRecords []string) []ed25519.PublicKey {
-	var publicKeys []ed25519.PublicKey
-	mcpPattern := regexp.MustCompile(`v=MCPv1;\s*k=ed25519;\s*p=([A-Za-z0-9+/=]+)`)
+// parsePublicKeysFromTXT parses public keys from DNS TXT records supporting multiple algorithms
+func (h *DNSAuthHandler) parsePublicKeysFromTXT(txtRecords []string) []PublicKeyInfo {
+	var publicKeys []PublicKeyInfo
+
+	// TXT record pattern: v=MCPv1; k=<algo>; p=<base64-public-key>
+	cryptoPattern := regexp.MustCompile(`v=MCPv1;\s*k=([^;]+);\s*p=([A-Za-z0-9+/=]+)`)
 
 	for _, record := range txtRecords {
-		matches := mcpPattern.FindStringSubmatch(record)
-		if len(matches) == 2 {
+		if matches := cryptoPattern.FindStringSubmatch(record); len(matches) == 3 {
 			// Decode base64 public key
-			publicKeyBytes, err := base64.StdEncoding.DecodeString(matches[1])
+			publicKeyBytes, err := base64.StdEncoding.DecodeString(matches[2])
 			if err != nil {
 				continue // Skip invalid keys
 			}
 
-			if len(publicKeyBytes) != ed25519.PublicKeySize {
-				continue // Skip invalid key sizes
+			// match to a supported crypto algorithm
+			switch matches[1] {
+			case "ed25519":
+				if len(publicKeyBytes) != ed25519.PublicKeySize {
+					continue // Skip invalid key sizes
+				}
+				publicKeys = append(publicKeys, PublicKeyInfo{
+					Algorithm: AlgorithmEd25519,
+					Key:       ed25519.PublicKey(publicKeyBytes),
+				})
+			case "ecdsap384":
+				if len(publicKeyBytes) != 49 || (publicKeyBytes[0] != 0x02 && publicKeyBytes[0] != 0x03) {
+					continue // Skip uncompressed ECDSA P-384 keys
+				}
+				curve := elliptic.P384()
+				x, y := elliptic.UnmarshalCompressed(curve, publicKeyBytes)
+				if x == nil || y == nil {
+					continue // Skip invalid keys
+				}
+				publicKeys = append(publicKeys, PublicKeyInfo{
+					Algorithm: AlgorithmECDSAP384,
+					Key:       ecdsa.PublicKey{Curve: curve, X: x, Y: y},
+				})
 			}
-
-			publicKeys = append(publicKeys, ed25519.PublicKey(publicKeyBytes))
 		}
 	}
 
 	return publicKeys
+}
+
+// VerifySignature verifies a signature using the appropriate algorithm
+func (pki *PublicKeyInfo) VerifySignature(message, signature []byte) bool {
+	switch pki.Algorithm {
+	case AlgorithmEd25519:
+		if ed25519Key, ok := pki.Key.(ed25519.PublicKey); ok {
+			if len(signature) != ed25519.SignatureSize {
+				return false
+			}
+			return ed25519.Verify(ed25519Key, message, signature)
+		}
+	case AlgorithmECDSAP384:
+		if ecdsaKey, ok := pki.Key.(ecdsa.PublicKey); ok {
+			if len(signature) != 96 {
+				return false
+			}
+			r := new(big.Int).SetBytes(signature[:48])
+			s := new(big.Int).SetBytes(signature[48:])
+			return ecdsa.Verify(&ecdsaKey, message, r, s)
+		}
+	}
+	return false
 }
 
 // buildPermissions builds permissions for a domain and its subdomains using reverse DNS notation
