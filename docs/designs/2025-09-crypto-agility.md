@@ -12,6 +12,8 @@ Today, the Community MCP Registry supports the following authentication methods 
 - HTTP
 - DNS
 
+See the [publish a server](https://github.com/modelcontextprotocol/registry/blob/747ad310bba75d80f20c1dd03051dd825df734e0/docs/guides/publishing/publish-server.md) guide for more information on the current authentication flows.
+
 GitHub authentication only unlocks the `io.github.<username>/*` namespaces. It does not support custom namespaces based on DNS names.
 
 For this document, we will focus on the HTTP and DNS authentication mechanisms because they leverage cryptographic key pairs (where crypto agility is needed) and enable custom namespaces based on domain name.
