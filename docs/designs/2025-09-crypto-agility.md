@@ -14,9 +14,9 @@ Today, the Community MCP Registry supports the following authentication methods 
 
 GitHub authentication only unlocks the `io.github.<username>/*` namespaces. It does not support custom namespaces based on DNS names.
 
-For this document, we will focus on the HTTP and DNS authentication mechanisms because they leverage cryptographic key pairs.
+For this document, we will focus on the HTTP and DNS authentication mechanisms because they leverage cryptographic key pairs (where crypto agility is needed) and enable custom namespaces based on domain name.
 
-Today, the only cryptographic algorithm supported is `ed25519`. The goal of this document is to suggest a way new cryptographic algorithms can be introduced without disrupting the general protocol or existing integrations.
+Today, the only cryptographic algorithm supported is `ed25519`. The idea of this document is to suggest a way new cryptographic algorithms can be introduced without disrupting the general protocol or existing integrations.
 
 ## Goals
 
@@ -26,7 +26,7 @@ The goals of this document are to:
 - Propose an additional crypto algorithm that is supported by HSM-backed cloud-based key services
 - Describe at a high level the code changes needed in the MCP Registry code repository
 
-The purpose of this work is improve the compliance of the authentication flow with respect to Microsoft security and compliance guidelines. This will allow Microsoft teams to authenticate to a Microsoft namespace and publish their MCP servers.
+The purpose of this work is to improve the authentication flow's compliance with Microsoft security and compliance guidelines. This will allow Microsoft teams to authenticate to a Microsoft namespace and publish their MCP servers.
 
 ## Non-goals
 
@@ -63,11 +63,13 @@ I propose the following backward-compatible enhancements:
 - Allow the key `k=` ("key pair algorithm name") to support values besides `ed25519`.
   - The algorithm name should encompass all parameters needed to perform crypto sign and verify operations aside from the public key, the private key. In other words, the algorithm name might include both a crypto system name and specific parameters like a name of a well known ECC curve (for example). It need not be an industry recognized string but must be a well defined value agreed upon by the MCP client tool and MCP Registry.
 - Allow the key `p=` to contain a public key string that is processed using a routine defined by the `k=`.
-  - The only requirement on the string is that it does not contain a semicolon `;` because this is the delimiter for the key value pair.
+  - The only requirement on the string is that it does not contain a semicolon `;` because this is the delimiter for the key-value pair.
 
 One concern for the `k=` value is how long it can get. A DNS TXT record has a maximum length of 255 characters. In other words, a public key that is too long (such as a large RSA public key) may not fit. The DNS flow lends itself to elliptic curve cryptography, which generally has shorter public keys than RSA-based cryptosystems. The HTTP flow can facilitate longer public key representations.
 
 Future major versions of the record format can be differentiated by `v=MCPv2` or similar. 
+
+As the need arises for additional crypto algorithms, values allowed by the `k=` parameter can be expanded ("crypto agility") and older ones can be phased out by the MCP Registry, as needed. 
 
 ## Supported algorithms
 
