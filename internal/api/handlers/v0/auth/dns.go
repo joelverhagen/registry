@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/ed25519"
 	"crypto/elliptic"
+	"crypto/sha512"
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
@@ -131,10 +132,6 @@ func (h *DNSAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, s
 		return nil, fmt.Errorf("invalid signature format, must be hex: %w", err)
 	}
 
-	if len(signature) != ed25519.SignatureSize {
-		return nil, fmt.Errorf("invalid signature length: expected %d, got %d", ed25519.SignatureSize, len(signature))
-	}
-
 	// Lookup DNS TXT records
 	txtRecords, err := h.resolver.LookupTXT(ctx, domain)
 	if err != nil {
@@ -243,7 +240,8 @@ func (pki *PublicKeyInfo) VerifySignature(message, signature []byte) bool {
 			}
 			r := new(big.Int).SetBytes(signature[:48])
 			s := new(big.Int).SetBytes(signature[48:])
-			return ecdsa.Verify(&ecdsaKey, message, r, s)
+			digest := sha512.Sum384(message)
+			return ecdsa.Verify(&ecdsaKey, digest[:], r, s)
 		}
 	}
 	return false
