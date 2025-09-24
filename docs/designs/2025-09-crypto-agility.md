@@ -104,7 +104,7 @@ The `p=` value will be the public key, compressed using the format described in 
 
 The public key will be decompressed by the MCP Registry service using the [`UnmarshalCompressed` function](https://pkg.go.dev/crypto/elliptic#UnmarshalCompressed) in the `crypto/elliptic` standard library package.
 
-The timestamp string will be hashed using the SHA3-384 hashing algorithm. This hash will be signed using the P-384 private key either in-memory in the publish tool or via a cloud-based key signing service.
+The timestamp string will be hashed using the SHA2-384 hashing algorithm. This hash will be signed using the P-384 private key either in-memory in the publish tool or via a cloud-based key signing service.
 
 The signature will be represented in the `R || S` format (the concatenation of the output R and S values) and will be hex-encoded, similar to the Ed25519 flow. The signature is 96 bytes prior to hex encoding.
 
@@ -176,7 +176,7 @@ The `-algorithm` parameter will be optional and default to `ed25519` for backwar
 
 The authentication code will parse the provided private key bytes using the [`ParseRawPrivateKey`](https://pkg.go.dev/crypto/ecdsa#ParseRawPrivateKey) function in the `crypto/ecdsa` standard library package.
 
-The SHA3-384 hash operation and the ECDSA sign operation will also both be performed using the Go standard library.
+The SHA2-384 hash operation and the ECDSA sign operation will also both be performed using the Go standard library.
 
 The main routine that will be modified is `GetToken` in [`/registry/cmd/publisher/auth/common.go](https://github.com/modelcontextprotocol/registry/blob/main/cmd/publisher/auth/common.go#L24-L59)
 
@@ -188,7 +188,7 @@ The string found in the DNS TXT records and HTTP response will now be parsed to 
 
 The `p=` value will be parsed based on the `k=` value, and an appropriate public key structure will be created.
 
-The `k=` value will also be used to process the provided signature value. The existing processing of the signature will be gated on an `ed25519` case. The new `ecdsap384` case will perform the needed SHA3-384 operation and cryptographic verify operation using the public key found in the DNS TXT record or HTTP response.
+The `k=` value will also be used to process the provided signature value. The existing processing of the signature will be gated on an `ed25519` case. The new `ecdsap384` case will perform the needed SHA2-384 operation and cryptographic verify operation using the public key found in the DNS TXT record or HTTP response.
 
 The MCP Server author will still be able to use multiple DNS TXT records and can even use `ed25519` and `ecdsap384` side by side.
 
