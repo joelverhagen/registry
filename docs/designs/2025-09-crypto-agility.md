@@ -24,7 +24,7 @@ Today, the only cryptographic algorithm supported is `ed25519`. The idea of this
 
 The goals of this document are to:
 
-- Formalize the structure of the DNS and HTTP public key record
+- Formalize the structure of the DNS and HTTP public key "proof record"
 - Propose an additional crypto algorithm that is supported by HSM-backed cloud-based key services
 - Describe at a high level the code changes needed in the MCP Registry code repository
 
@@ -161,6 +161,34 @@ pub:
     7b:e2:c4:bd:f7:54:23:0d:d9:f5:63:2e:cd:b7:0a:
     98:58:16:3a:90:27:b3
 ```
+
+## The future and new algorithms
+
+I believe we can anticipate two categories of changes needed to the MCP Registry authentication flow in the future.
+
+
+**We may need incremental changes related to new crypto algorithms.**
+
+The currently supported key pair algorithms will age out due to advances in computing power, advances in quantum computing, or vulnerabilities found in those existing, relied upon algorithms. Alternatively, some enterprise environments may have certain crypto algorithms banned or blessed, necessitating a new algorithm be added to unblock the enterprise from publishing to the registry in a compliant manner (as is the case with my situation, being from Microsoft). In situations like this, a new key pair algorithm will be proposed as a safe alternative.
+
+In these cases, we can simply introduce a new `k=` algorithm name, update the related publisher tool and registry service code, and plan the phase-out of the older algorithm (if needed).
+
+I recommend that these proposals require a low bar and can be driven by any community member with a GitHub issue and accompanying pull request. Factors to consider during design and implementation include:
+
+- Is the algorithm supported by the Go standard library? This lowers the bar of implementation since no new dependency is needed.
+- Is the algorithm just a new curve or a new algorithm entirely? New curves can be implemented by copying/sharing code with an existing `k=` value.
+
+New algorithms should not be the opportunity to introduce additional inputs for the sign or verification steps.
+
+In short, these types of changes are backward compatible and pose little burden on the MCP Registry maintainers.
+
+**We may need fundamental changes related to the MCP Registry authentication flow.**
+
+If vulnerabilities are found in the current flow, or a new required step is needed, then we could consider the changes a breaking protocol change. Some changes may be accommodated by incrementing the `v=` parameter of the DNS TXT record or HTTP payload to, say, `v=MCPv2` and changing the rest of the record's key-value pairs. Or, the changes may be outside of the proof record entirely and may mean a change to the token exchange request. This could be facilitated with an API version parameter, such as changing the URL to `/v1/auth/dns`, adding an API version to an `Accept` or `Content-Type` request header, a query parameter, or a field in the JSON request body.
+
+These changes are out of scope for this document since I am focusing on crypto agility in the places we currently use crypto algorithms.
+
+If a pressing security issue is found in the MCP Registry, the [Security Policy](https://github.com/modelcontextprotocol/registry/security) should be used to ensure responsible disclosure and remediation.
 
 ## Code changes
 
