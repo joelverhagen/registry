@@ -131,7 +131,7 @@ func TestHTTPAuthHandler_ExchangeToken(t *testing.T) {
 				m.err = nil
 			},
 			expectError:   true,
-			errorContains: "invalid key format",
+			errorContains: "failed to parse public key",
 		},
 		{
 			name:      "invalid base64 key",
@@ -142,7 +142,7 @@ func TestHTTPAuthHandler_ExchangeToken(t *testing.T) {
 				m.err = nil
 			},
 			expectError:   true,
-			errorContains: "failed to decode base64 public key",
+			errorContains: "failed to parse public key",
 		},
 		{
 			name:      "wrong key size",
@@ -155,7 +155,7 @@ func TestHTTPAuthHandler_ExchangeToken(t *testing.T) {
 				m.err = nil
 			},
 			expectError:   true,
-			errorContains: "invalid public key length",
+			errorContains: "failed to parse public key",
 		},
 		{
 			name:      "signature verification failure",

@@ -121,41 +121,34 @@ func RegisterHTTPEndpoint(api huma.API, cfg *config.Config) {
 
 // ExchangeToken exchanges HTTP signature for a Registry JWT token
 func (h *HTTPAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, signedTimestamp string) (*auth.TokenResponse, error) {
-	// Validate domain and timestamp using shared utility
 	_, err := ValidateDomainAndTimestamp(domain, timestamp)
 	if err != nil {
 		return nil, err
 	}
 
-	// Decode and validate signature using shared utility
 	signature, err := DecodeAndValidateSignature(signedTimestamp)
 	if err != nil {
 		return nil, err
 	}
 
-	// Fetch public key from HTTP endpoint
+	// Fetch the key from well known HTTP endpoint
 	keyResponse, err := h.fetcher.FetchKey(ctx, domain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch public key: %w", err)
 	}
 
-	// Parse public key from HTTP response using shared utility
-	publicKey, err := ParseMCPKeyFromString(keyResponse)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse public key: %w", err)
+	publicKeys := ParseMCPKeysFromStrings([]string{keyResponse})
+	if len(publicKeys) == 0 {
+		return nil, fmt.Errorf("failed to parse public key")
 	}
 
-	// Verify signature using shared utility
 	messageBytes := []byte(timestamp)
-	if !VerifySignatureWithKey(publicKey, messageBytes, signature) {
+	if !VerifySignatureWithKeys(publicKeys, messageBytes, signature) {
 		return nil, fmt.Errorf("signature verification failed")
 	}
 
 	// Build permissions for domain (HTTP does not include subdomains)
 	permissions := BuildPermissions(domain, false)
 
-	// Create JWT claims and token using shared utility
 	return h.CreateJWTClaimsAndToken(ctx, auth.MethodHTTP, domain, permissions)
 }
-
-

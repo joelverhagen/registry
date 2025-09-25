@@ -75,13 +75,11 @@ func RegisterDNSEndpoint(api huma.API, cfg *config.Config) {
 
 // ExchangeToken exchanges DNS signature for a Registry JWT token
 func (h *DNSAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, signedTimestamp string) (*auth.TokenResponse, error) {
-	// Validate domain and timestamp using shared utility
 	_, err := ValidateDomainAndTimestamp(domain, timestamp)
 	if err != nil {
 		return nil, err
 	}
 
-	// Decode and validate signature using shared utility
 	signature, err := DecodeAndValidateSignature(signedTimestamp)
 	if err != nil {
 		return nil, err
@@ -93,24 +91,19 @@ func (h *DNSAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, s
 		return nil, fmt.Errorf("failed to lookup DNS TXT records: %w", err)
 	}
 
-	// Parse public keys from TXT records using shared utility
 	publicKeys := ParseMCPKeysFromStrings(txtRecords)
 
 	if len(publicKeys) == 0 {
 		return nil, fmt.Errorf("no valid MCP public keys found in DNS TXT records")
 	}
 
-	// Verify signature with any of the public keys using shared utility
 	messageBytes := []byte(timestamp)
 	if !VerifySignatureWithKeys(publicKeys, messageBytes, signature) {
 		return nil, fmt.Errorf("signature verification failed")
 	}
 
-	// Build permissions for domain and subdomains using shared utility (DNS includes subdomains)
+	// Build permissions for domain (DNS includes subdomains)
 	permissions := BuildPermissions(domain, true)
 
-	// Create JWT claims and token using shared utility
 	return h.CreateJWTClaimsAndToken(ctx, auth.MethodDNS, domain, permissions)
 }
-
-
