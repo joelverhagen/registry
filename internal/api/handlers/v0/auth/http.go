@@ -2,13 +2,9 @@ package auth
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
-	"regexp"
 	"strings"
 	"time"
 
@@ -20,11 +16,7 @@ import (
 
 // HTTPTokenExchangeInput represents the input for HTTP-based authentication
 type HTTPTokenExchangeInput struct {
-	Body struct {
-		Domain          string `json:"domain" doc:"Domain name" example:"example.com" required:"true"`
-		Timestamp       string `json:"timestamp" doc:"RFC3339 timestamp" example:"2023-01-01T00:00:00Z" required:"true"`
-		SignedTimestamp string `json:"signed_timestamp" doc:"Hex-encoded Ed25519 signature of timestamp" example:"abcdef1234567890" required:"true"`
-	}
+	Body CoreTokenExchangeInput
 }
 
 // HTTPKeyFetcher defines the interface for fetching HTTP keys
@@ -86,17 +78,15 @@ func (f *DefaultHTTPKeyFetcher) FetchKey(ctx context.Context, domain string) (st
 
 // HTTPAuthHandler handles HTTP-based authentication
 type HTTPAuthHandler struct {
-	config     *config.Config
-	jwtManager *auth.JWTManager
-	fetcher    HTTPKeyFetcher
+	CoreAuthHandler
+	fetcher HTTPKeyFetcher
 }
 
 // NewHTTPAuthHandler creates a new HTTP authentication handler
 func NewHTTPAuthHandler(cfg *config.Config) *HTTPAuthHandler {
 	return &HTTPAuthHandler{
-		config:     cfg,
-		jwtManager: auth.NewJWTManager(cfg),
-		fetcher:    NewDefaultHTTPKeyFetcher(),
+		CoreAuthHandler: *NewCoreAuthHandler(cfg),
+		fetcher:         NewDefaultHTTPKeyFetcher(),
 	}
 }
 
@@ -131,31 +121,16 @@ func RegisterHTTPEndpoint(api huma.API, cfg *config.Config) {
 
 // ExchangeToken exchanges HTTP signature for a Registry JWT token
 func (h *HTTPAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, signedTimestamp string) (*auth.TokenResponse, error) {
-	// Validate domain format
-	if !isValidDomain(domain) {
-		return nil, fmt.Errorf("invalid domain format")
-	}
-
-	// Parse and validate timestamp
-	ts, err := time.Parse(time.RFC3339, timestamp)
+	// Validate domain and timestamp using shared utility
+	_, err := ValidateDomainAndTimestamp(domain, timestamp)
 	if err != nil {
-		return nil, fmt.Errorf("invalid timestamp format: %w", err)
+		return nil, err
 	}
 
-	// Check timestamp is within 15 seconds
-	now := time.Now()
-	if ts.Before(now.Add(-15*time.Second)) || ts.After(now.Add(15*time.Second)) {
-		return nil, fmt.Errorf("timestamp outside valid window (±15 seconds)")
-	}
-
-	// Decode signature
-	signature, err := hex.DecodeString(signedTimestamp)
+	// Decode and validate signature using shared utility
+	signature, err := DecodeAndValidateSignature(signedTimestamp)
 	if err != nil {
-		return nil, fmt.Errorf("invalid signature format, must be hex: %w", err)
-	}
-
-	if len(signature) != ed25519.SignatureSize {
-		return nil, fmt.Errorf("invalid signature length: expected %d, got %d", ed25519.SignatureSize, len(signature))
+		return nil, err
 	}
 
 	// Fetch public key from HTTP endpoint
@@ -164,74 +139,23 @@ func (h *HTTPAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, 
 		return nil, fmt.Errorf("failed to fetch public key: %w", err)
 	}
 
-	// Parse public key from HTTP response
-	publicKey, err := h.parsePublicKeyFromHTTP(keyResponse)
+	// Parse public key from HTTP response using shared utility
+	publicKey, err := ParseMCPKeyFromString(keyResponse)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse public key: %w", err)
 	}
 
-	// Verify signature
+	// Verify signature using shared utility
 	messageBytes := []byte(timestamp)
-	if !ed25519.Verify(publicKey, messageBytes, signature) {
+	if !VerifySignatureWithKey(publicKey, messageBytes, signature) {
 		return nil, fmt.Errorf("signature verification failed")
 	}
 
-	// Build permissions for domain and subdomains
-	permissions := h.buildPermissions(domain)
+	// Build permissions for domain (HTTP does not include subdomains)
+	permissions := BuildPermissions(domain, false)
 
-	// Create JWT claims
-	jwtClaims := auth.JWTClaims{
-		AuthMethod:        auth.MethodHTTP,
-		AuthMethodSubject: domain,
-		Permissions:       permissions,
-	}
-
-	// Generate Registry JWT token
-	tokenResponse, err := h.jwtManager.GenerateTokenResponse(ctx, jwtClaims)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate JWT token: %w", err)
-	}
-
-	return tokenResponse, nil
+	// Create JWT claims and token using shared utility
+	return h.CreateJWTClaimsAndToken(ctx, auth.MethodHTTP, domain, permissions)
 }
 
-// parsePublicKeyFromHTTP parses Ed25519 public key from HTTP response
-func (h *HTTPAuthHandler) parsePublicKeyFromHTTP(response string) (ed25519.PublicKey, error) {
-	// Expected format: v=MCPv1; k=ed25519; p=<base64-encoded-key>
-	mcpPattern := regexp.MustCompile(`v=MCPv1;\s*k=ed25519;\s*p=([A-Za-z0-9+/=]+)`)
 
-	matches := mcpPattern.FindStringSubmatch(response)
-	if len(matches) != 2 {
-		return nil, fmt.Errorf("invalid key format, expected: v=MCPv1; k=ed25519; p=<base64-key>")
-	}
-
-	// Decode base64 public key
-	publicKeyBytes, err := base64.StdEncoding.DecodeString(matches[1])
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode base64 public key: %w", err)
-	}
-
-	if len(publicKeyBytes) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf("invalid public key length: expected %d, got %d", ed25519.PublicKeySize, len(publicKeyBytes))
-	}
-
-	return ed25519.PublicKey(publicKeyBytes), nil
-}
-
-// buildPermissions builds permissions for a domain and its subdomains using reverse DNS notation
-func (h *HTTPAuthHandler) buildPermissions(domain string) []auth.Permission {
-	reverseDomain := reverseString(domain)
-
-	permissions := []auth.Permission{
-		// Grant permissions for the exact domain (e.g., com.example/*)
-		{
-			Action:          auth.PermissionActionPublish,
-			ResourcePattern: fmt.Sprintf("%s/*", reverseDomain),
-		},
-		// HTTP does not imply a hierarchy of ownership of subdomains, unlike DNS
-		// Therefore this does not give permissions for subdomains
-		// This is consistent with similar protocols, e.g. ACME HTTP-01
-	}
-
-	return permissions
-}

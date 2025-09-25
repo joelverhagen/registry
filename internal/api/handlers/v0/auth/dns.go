@@ -2,15 +2,9 @@ package auth
 
 import (
 	"context"
-	"crypto/ed25519"
-	"encoding/base64"
-	"encoding/hex"
 	"fmt"
 	"net"
 	"net/http"
-	"regexp"
-	"strings"
-	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 	v0 "github.com/modelcontextprotocol/registry/internal/api/handlers/v0"
@@ -20,11 +14,7 @@ import (
 
 // DNSTokenExchangeInput represents the input for DNS-based authentication
 type DNSTokenExchangeInput struct {
-	Body struct {
-		Domain          string `json:"domain" doc:"Domain name" example:"example.com" required:"true"`
-		Timestamp       string `json:"timestamp" doc:"RFC3339 timestamp" example:"2023-01-01T00:00:00Z" required:"true"`
-		SignedTimestamp string `json:"signed_timestamp" doc:"Hex-encoded Ed25519 signature of timestamp" example:"abcdef1234567890" required:"true"`
-	}
+	Body CoreTokenExchangeInput
 }
 
 // DNSResolver defines the interface for DNS resolution
@@ -42,17 +32,15 @@ func (r *DefaultDNSResolver) LookupTXT(ctx context.Context, name string) ([]stri
 
 // DNSAuthHandler handles DNS-based authentication
 type DNSAuthHandler struct {
-	config     *config.Config
-	jwtManager *auth.JWTManager
-	resolver   DNSResolver
+	CoreAuthHandler
+	resolver DNSResolver
 }
 
 // NewDNSAuthHandler creates a new DNS authentication handler
 func NewDNSAuthHandler(cfg *config.Config) *DNSAuthHandler {
 	return &DNSAuthHandler{
-		config:     cfg,
-		jwtManager: auth.NewJWTManager(cfg),
-		resolver:   &DefaultDNSResolver{},
+		CoreAuthHandler: *NewCoreAuthHandler(cfg),
+		resolver:        &DefaultDNSResolver{},
 	}
 }
 
@@ -87,31 +75,16 @@ func RegisterDNSEndpoint(api huma.API, cfg *config.Config) {
 
 // ExchangeToken exchanges DNS signature for a Registry JWT token
 func (h *DNSAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, signedTimestamp string) (*auth.TokenResponse, error) {
-	// Validate domain format
-	if !isValidDomain(domain) {
-		return nil, fmt.Errorf("invalid domain format")
-	}
-
-	// Parse and validate timestamp
-	ts, err := time.Parse(time.RFC3339, timestamp)
+	// Validate domain and timestamp using shared utility
+	_, err := ValidateDomainAndTimestamp(domain, timestamp)
 	if err != nil {
-		return nil, fmt.Errorf("invalid timestamp format: %w", err)
+		return nil, err
 	}
 
-	// Check timestamp is within 15 seconds
-	now := time.Now()
-	if ts.Before(now.Add(-15*time.Second)) || ts.After(now.Add(15*time.Second)) {
-		return nil, fmt.Errorf("timestamp outside valid window (±15 seconds)")
-	}
-
-	// Decode signature
-	signature, err := hex.DecodeString(signedTimestamp)
+	// Decode and validate signature using shared utility
+	signature, err := DecodeAndValidateSignature(signedTimestamp)
 	if err != nil {
-		return nil, fmt.Errorf("invalid signature format, must be hex: %w", err)
-	}
-
-	if len(signature) != ed25519.SignatureSize {
-		return nil, fmt.Errorf("invalid signature length: expected %d, got %d", ed25519.SignatureSize, len(signature))
+		return nil, err
 	}
 
 	// Lookup DNS TXT records
@@ -120,108 +93,24 @@ func (h *DNSAuthHandler) ExchangeToken(ctx context.Context, domain, timestamp, s
 		return nil, fmt.Errorf("failed to lookup DNS TXT records: %w", err)
 	}
 
-	// Parse public keys from TXT records
-	publicKeys := h.parsePublicKeysFromTXT(txtRecords)
+	// Parse public keys from TXT records using shared utility
+	publicKeys := ParseMCPKeysFromStrings(txtRecords)
 
 	if len(publicKeys) == 0 {
 		return nil, fmt.Errorf("no valid MCP public keys found in DNS TXT records")
 	}
 
-	// Verify signature with any of the public keys
+	// Verify signature with any of the public keys using shared utility
 	messageBytes := []byte(timestamp)
-	signatureValid := false
-	for _, publicKey := range publicKeys {
-		if ed25519.Verify(publicKey, messageBytes, signature) {
-			signatureValid = true
-			break
-		}
-	}
-
-	if !signatureValid {
+	if !VerifySignatureWithKeys(publicKeys, messageBytes, signature) {
 		return nil, fmt.Errorf("signature verification failed")
 	}
 
-	// Build permissions for domain and subdomains
-	permissions := h.buildPermissions(domain)
+	// Build permissions for domain and subdomains using shared utility (DNS includes subdomains)
+	permissions := BuildPermissions(domain, true)
 
-	// Create JWT claims
-	jwtClaims := auth.JWTClaims{
-		AuthMethod:        auth.MethodDNS,
-		AuthMethodSubject: domain,
-		Permissions:       permissions,
-	}
-
-	// Generate Registry JWT token
-	tokenResponse, err := h.jwtManager.GenerateTokenResponse(ctx, jwtClaims)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate JWT token: %w", err)
-	}
-
-	return tokenResponse, nil
+	// Create JWT claims and token using shared utility
+	return h.CreateJWTClaimsAndToken(ctx, auth.MethodDNS, domain, permissions)
 }
 
-// parsePublicKeysFromTXT parses Ed25519 public keys from DNS TXT records
-func (h *DNSAuthHandler) parsePublicKeysFromTXT(txtRecords []string) []ed25519.PublicKey {
-	var publicKeys []ed25519.PublicKey
-	mcpPattern := regexp.MustCompile(`v=MCPv1;\s*k=ed25519;\s*p=([A-Za-z0-9+/=]+)`)
 
-	for _, record := range txtRecords {
-		matches := mcpPattern.FindStringSubmatch(record)
-		if len(matches) == 2 {
-			// Decode base64 public key
-			publicKeyBytes, err := base64.StdEncoding.DecodeString(matches[1])
-			if err != nil {
-				continue // Skip invalid keys
-			}
-
-			if len(publicKeyBytes) != ed25519.PublicKeySize {
-				continue // Skip invalid key sizes
-			}
-
-			publicKeys = append(publicKeys, ed25519.PublicKey(publicKeyBytes))
-		}
-	}
-
-	return publicKeys
-}
-
-// buildPermissions builds permissions for a domain and its subdomains using reverse DNS notation
-func (h *DNSAuthHandler) buildPermissions(domain string) []auth.Permission {
-	reverseDomain := reverseString(domain)
-
-	permissions := []auth.Permission{
-		// Grant permissions for the exact domain (e.g., com.example/*)
-		{
-			Action:          auth.PermissionActionPublish,
-			ResourcePattern: fmt.Sprintf("%s/*", reverseDomain),
-		},
-		// DNS implies a hierarchy where subdomains are treated as part of the parent domain,
-		// therefore we grant permissions for all subdomains (e.g., com.example.*)
-		// This is in line with other DNS-based authentication methods e.g. ACME DNS-01 challenges
-		{
-			Action:          auth.PermissionActionPublish,
-			ResourcePattern: fmt.Sprintf("%s.*", reverseDomain),
-		},
-	}
-
-	return permissions
-}
-
-// reverseString reverses a domain string (example.com -> com.example)
-func reverseString(domain string) string {
-	parts := strings.Split(domain, ".")
-	for i, j := 0, len(parts)-1; i < j; i, j = i+1, j-1 {
-		parts[i], parts[j] = parts[j], parts[i]
-	}
-	return strings.Join(parts, ".")
-}
-
-func isValidDomain(domain string) bool {
-	if len(domain) == 0 || len(domain) > 253 {
-		return false
-	}
-
-	// Check for valid characters and structure
-	domainPattern := regexp.MustCompile(`^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?(\.[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?)*$`)
-	return domainPattern.MatchString(domain)
-}
