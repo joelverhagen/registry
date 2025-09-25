@@ -45,7 +45,7 @@ func TestDNSAuthHandler_ExchangeToken(t *testing.T) {
 	publicKeyB64 := base64.StdEncoding.EncodeToString(publicKey)
 	mockResolver := &MockDNSResolver{
 		txtRecords: map[string][]string{
-			"example.com": {
+			testDomain: {
 				fmt.Sprintf("v=MCPv1; k=ed25519; p=%s", publicKeyB64),
 			},
 		},
@@ -63,7 +63,7 @@ func TestDNSAuthHandler_ExchangeToken(t *testing.T) {
 	}{
 		{
 			name:      "successful authentication",
-			domain:    "example.com",
+			domain:    testDomain,
 			timestamp: time.Now().UTC().Format(time.RFC3339),
 			setupMock: func(_ *MockDNSResolver) {
 				// Mock is already set up with valid key
@@ -72,14 +72,14 @@ func TestDNSAuthHandler_ExchangeToken(t *testing.T) {
 		},
 		{
 			name:      "multiple keys",
-			domain:    "example.com",
+			domain:    testDomain,
 			timestamp: time.Now().UTC().Format(time.RFC3339),
 			setupMock: func(m *MockDNSResolver) {
 				publicKey, _, err := ed25519.GenerateKey(nil)
 				require.NoError(t, err)
 				otherPublicKeyB64 := base64.StdEncoding.EncodeToString(publicKey)
 
-				m.txtRecords["example.com"] = []string{
+				m.txtRecords[testDomain] = []string{
 					fmt.Sprintf("v=MCPv1; k=ed25519; p=%s", "someNonsense"),
 					fmt.Sprintf("v=MCPv1; k=ed25519; p=%s", publicKeyB64),
 					fmt.Sprintf("v=MCPv1; k=ed25519; p=%s", otherPublicKeyB64),
@@ -96,14 +96,14 @@ func TestDNSAuthHandler_ExchangeToken(t *testing.T) {
 		},
 		{
 			name:          "timestamp too old",
-			domain:        "example.com",
+			domain:        testDomain,
 			timestamp:     time.Now().Add(-30 * time.Second).UTC().Format(time.RFC3339),
 			expectError:   true,
 			errorContains: "timestamp outside valid window",
 		},
 		{
 			name:          "timestamp too far in the future",
-			domain:        "example.com",
+			domain:        testDomain,
 			timestamp:     time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339),
 			expectError:   true,
 			errorContains: "timestamp outside valid window",
@@ -216,14 +216,14 @@ func TestDNSAuthHandler_Permissions(t *testing.T) {
 	}{
 		{
 			name:   "simple domain",
-			domain: "example.com",
+			domain: testDomain,
 			expectedPatterns: []string{
 				"com.example/*", // exact domain pattern
 				"com.example.*", // subdomain pattern (DNS includes subdomains)
 			},
 			unexpectedPatterns: []string{
-				"example.com/*", // should be reversed
-				"*.com.example", // wrong wildcard position
+				testDomain + "/*", // should be reversed
+				"*.com.example",   // wrong wildcard position
 			},
 		},
 		{
@@ -234,8 +234,8 @@ func TestDNSAuthHandler_Permissions(t *testing.T) {
 				"com.example.api.*", // subdomain pattern
 			},
 			unexpectedPatterns: []string{
-				"com.example/*",     // parent domain should not be included
-				"api.example.com/*", // should be reversed
+				"com.example/*",            // parent domain should not be included
+				"api." + testDomain + "/*", // should be reversed
 			},
 		},
 		{
@@ -367,7 +367,7 @@ func TestDNSAuthHandler_PermissionValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	publicKeyB64 := base64.StdEncoding.EncodeToString(publicKey)
-	domain := "example.com"
+	domain := testDomain
 
 	// Set up mock resolver
 	mockResolver := &MockDNSResolver{

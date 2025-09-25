@@ -18,6 +18,8 @@ import (
 	"github.com/modelcontextprotocol/registry/internal/config"
 )
 
+const testDomain = "example.com"
+
 // MockHTTPKeyFetcher for testing
 type MockHTTPKeyFetcher struct {
 	keyResponses map[string]string
@@ -45,7 +47,7 @@ func TestHTTPAuthHandler_ExchangeToken(t *testing.T) {
 	publicKeyB64 := base64.StdEncoding.EncodeToString(publicKey)
 	mockFetcher := &MockHTTPKeyFetcher{
 		keyResponses: map[string]string{
-			"example.com": fmt.Sprintf("v=MCPv1; k=ed25519; p=%s", publicKeyB64),
+			testDomain: fmt.Sprintf("v=MCPv1; k=ed25519; p=%s", publicKeyB64),
 		},
 	}
 	handler.SetFetcher(mockFetcher)
@@ -61,7 +63,7 @@ func TestHTTPAuthHandler_ExchangeToken(t *testing.T) {
 	}{
 		{
 			name:      "successful authentication",
-			domain:    "example.com",
+			domain:    testDomain,
 			timestamp: time.Now().UTC().Format(time.RFC3339),
 			setupMock: func(_ *MockHTTPKeyFetcher) {
 				// Mock is already set up with valid key
@@ -77,28 +79,28 @@ func TestHTTPAuthHandler_ExchangeToken(t *testing.T) {
 		},
 		{
 			name:          "invalid timestamp format",
-			domain:        "example.com",
+			domain:        testDomain,
 			timestamp:     "invalid-timestamp",
 			expectError:   true,
 			errorContains: "invalid timestamp format",
 		},
 		{
 			name:          "timestamp too old",
-			domain:        "example.com",
+			domain:        testDomain,
 			timestamp:     time.Now().Add(-30 * time.Second).UTC().Format(time.RFC3339),
 			expectError:   true,
 			errorContains: "timestamp outside valid window",
 		},
 		{
 			name:          "timestamp too far in the future",
-			domain:        "example.com",
+			domain:        testDomain,
 			timestamp:     time.Now().Add(30 * time.Second).UTC().Format(time.RFC3339),
 			expectError:   true,
 			errorContains: "timestamp outside valid window",
 		},
 		{
 			name:            "invalid signature format",
-			domain:          "example.com",
+			domain:          testDomain,
 			timestamp:       time.Now().UTC().Format(time.RFC3339),
 			signedTimestamp: "invalid-hex",
 			expectError:     true,
@@ -106,7 +108,7 @@ func TestHTTPAuthHandler_ExchangeToken(t *testing.T) {
 		},
 		{
 			name:            "signature wrong length",
-			domain:          "example.com",
+			domain:          testDomain,
 			timestamp:       time.Now().UTC().Format(time.RFC3339),
 			signedTimestamp: "abcdef", // too short
 			expectError:     true,
@@ -159,14 +161,14 @@ func TestHTTPAuthHandler_ExchangeToken(t *testing.T) {
 		},
 		{
 			name:      "signature verification failure",
-			domain:    "example.com",
+			domain:    testDomain,
 			timestamp: time.Now().UTC().Format(time.RFC3339),
 			setupMock: func(m *MockHTTPKeyFetcher) {
 				// Generate different key pair for signature verification failure
 				wrongPublicKey, _, err := ed25519.GenerateKey(nil)
 				require.NoError(t, err)
 				wrongPublicKeyB64 := base64.StdEncoding.EncodeToString(wrongPublicKey)
-				m.keyResponses["example.com"] = fmt.Sprintf("v=MCPv1; k=ed25519; p=%s", wrongPublicKeyB64)
+				m.keyResponses[testDomain] = fmt.Sprintf("v=MCPv1; k=ed25519; p=%s", wrongPublicKeyB64)
 				m.err = nil
 			},
 			expectError:   true,
@@ -263,7 +265,7 @@ func TestHTTPAuthHandler_Permissions(t *testing.T) {
 	}{
 		{
 			name:   "simple domain",
-			domain: "example.com",
+			domain: testDomain,
 			expectedPatterns: []string{
 				"com.example/*", // exact domain pattern only (HTTP does not include subdomains)
 			},
@@ -411,7 +413,7 @@ func TestHTTPAuthHandler_PermissionValidation(t *testing.T) {
 	require.NoError(t, err)
 
 	publicKeyB64 := base64.StdEncoding.EncodeToString(publicKey)
-	domain := "example.com"
+	domain := testDomain
 
 	// Set up mock fetcher
 	mockFetcher := &MockHTTPKeyFetcher{
@@ -514,7 +516,7 @@ func TestHTTPvsDNS_PermissionDifferences(t *testing.T) {
 	require.NoError(t, err)
 
 	publicKeyB64 := base64.StdEncoding.EncodeToString(publicKey)
-	domain := "example.com"
+	domain := testDomain
 
 	// Set up mocks
 	mockFetcher := &MockHTTPKeyFetcher{
