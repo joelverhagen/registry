@@ -35,8 +35,8 @@ The purpose of this work is to improve the authentication flow's compliance with
 The non-goals (things that will not be discussed or decided upon) are:
 
 - Describe how specific cloud-based key services would integrate into client tooling
-- Change the authentication flow to add any new parameters or steps. 
-- Critique or harden the authentication flow, such as by incorporating additional payload into the login flow or limiting the duration for which a specific key pair can be used.
+- Change the authentication flow to add any new parameters or steps
+- Critique or harden the authentication flow, such as by incorporating additional payload into the login flow or limiting the duration for which a specific key pair can be used
 
 ## Authentication overview
 
@@ -63,19 +63,19 @@ Conceptually, it is a set of key-value pairs. Today the only variable part in th
 I propose the following backward-compatible enhancements:
 
 - Allow the key `k=` ("key pair algorithm name") to support values besides `ed25519`.
-  - The algorithm name should encompass all parameters needed to perform crypto sign and verify operations aside from the public key, the private key. In other words, the algorithm name might include both a crypto system name and specific parameters like a name of a well known ECC curve (for example). It need not be an industry recognized string but must be a well defined value agreed upon by the MCP client tool and MCP Registry.
-- Allow the key `p=` to contain a public key string that is processed using a routine defined by the `k=`.
-  - The only requirement on the string is that it does not contain a semicolon `;` because this is the delimiter for the key-value pair.
+  - The algorithm name should encompass all parameters needed to perform crypto sign and verify operations aside from the public key and the private key. In other words, the algorithm name might include both a crypto system name and specific parameters like a name of a well-known ECC curve (for example). It need not be an industry-recognized string but must be a well-defined value agreed upon by the MCP client tool and MCP Registry.
+- Allow the key `p=` to contain a public key string that is processed using a routine defined by the `k=` value.
+  - The only requirement on the string is that it does not contain a semicolon `;` because this is the delimiter for the key-value pairs.
 
 One concern for the `k=` value is how long it can get. A DNS TXT record has a maximum length of 255 characters. In other words, a public key that is too long (such as a large RSA public key) may not fit. The DNS flow lends itself to elliptic curve cryptography, which generally has shorter public keys than RSA-based cryptosystems. The HTTP flow can facilitate longer public key representations.
 
-Future major versions of the record format can be differentiated by `v=MCPv2` or similar. 
+Future major versions of the record format can be differentiated by `v=MCPv2` or similar.
 
 As the need arises for additional crypto algorithms, values allowed by the `k=` parameter can be expanded ("crypto agility") and older ones can be phased out by the MCP Registry, as needed. 
 
 ## Supported algorithms
 
-The values supported by the `k=` would be defined by the MCP Registry deployment and what support exists in the associated client publish tool. 
+The values supported by the `k=` parameter would be defined by the MCP Registry deployment and what support exists in the associated client publish tool. 
 
 For the official MCP Registry, I propose the following crypto algorithms.
 
@@ -164,21 +164,33 @@ pub:
 
 ## The future and new algorithms
 
-I believe we can anticipate two categories of changes needed to the MCP Registry authentication flow in the future.
-
+I believe we can anticipate two categories of changes needed for the MCP Registry authentication flow in the future.
 
 **We may need incremental changes related to new crypto algorithms.**
 
-The currently supported key pair algorithms will age out due to advances in computing power, advances in quantum computing, or vulnerabilities found in those existing, relied upon algorithms. Alternatively, some enterprise environments may have certain crypto algorithms banned or blessed, necessitating a new algorithm be added to unblock the enterprise from publishing to the registry in a compliant manner (as is the case with my situation, being from Microsoft). In situations like this, a new key pair algorithm will be proposed as a safe alternative.
+The currently supported key pair algorithms will age out due to advances in computing power, advances in quantum computing, or vulnerabilities found in existing algorithms being relied upon. Alternatively, some enterprise environments may have certain crypto algorithms banned or blessed, necessitating that a new algorithm be added to unblock the enterprise from publishing to the registry in a compliant manner (as is the case for Microsoft). In situations like this, a new key pair algorithm will be proposed as a safe alternative.
 
 In these cases, we can simply introduce a new `k=` algorithm name, update the related publisher tool and registry service code, and plan the phase-out of the older algorithm (if needed).
 
-I recommend that these proposals require a low bar and can be driven by any community member with a GitHub issue and accompanying pull request. Factors to consider during design and implementation include:
+I recommend that these proposals have a low bar and can be driven by any community member with a GitHub issue and accompanying pull request. Factors to consider during design and implementation include:
 
 - Is the algorithm supported by the Go standard library? This lowers the bar of implementation since no new dependency is needed.
-- Is the algorithm just a new curve or a new algorithm entirely? New curves can be implemented by copying/sharing code with an existing `k=` value.
+- Is the algorithm just a new curve or a new algorithm entirely? New curves can be implemented by copying or sharing code with an existing `k=` value.
 
 New algorithms should not be the opportunity to introduce additional inputs for the sign or verification steps.
+
+A simple checklist to add a new `k=` algorithm could be:
+- [ ] Add support for the `k=` value to the publisher tool
+  - New value for the `-algorithm` command line argument
+  - New switch case for parsing the private key argument
+  - New switch case for signing with the private key
+- [ ] Add support for the `k=` value to the registry service   
+  - New switch case for parsing the public key from the proof record
+  - New switch case for executing the verify step (and timestamp hash, if applicable)
+- [ ] Mention the newly supported algorithm in the publishing docs
+  - Document the OpenSSL command for generating the key pair
+  - Document the OpenSSL command for producing the `p=` public key base64 string for the proof record
+  - Document the OpenSSL command for producing the private key hex string for the login command
 
 In short, these types of changes are backward compatible and pose little burden on the MCP Registry maintainers.
 
@@ -200,7 +212,7 @@ A new `-algorithm` parameter must be added to the `login` command. It only appli
 
 The allowed values for this new parameter will match the supported `k=` values, i.e. `ed25519` and `ecdsap384`.
 
-The `-algorithm` parameter will be optional and default to `ed25519` for backwards compatibility.
+The `-algorithm` parameter will be optional and default to `ed25519` for backward compatibility.
 
 The authentication code will parse the provided private key bytes using the [`ParseRawPrivateKey`](https://pkg.go.dev/crypto/ecdsa#ParseRawPrivateKey) function in the `crypto/ecdsa` standard library package.
 
