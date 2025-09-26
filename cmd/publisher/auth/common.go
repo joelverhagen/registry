@@ -8,6 +8,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/sha512"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -29,11 +30,31 @@ const (
 
 // CryptoProvider provides common functionality for DNS and HTTP authentication
 type CryptoProvider struct {
-	registryURL     string
-	domain          string
-	privateKey      string
-	cryptoAlgorithm CryptoAlgorithm
-	authMethod      string
+	registryURL string
+	domain      string
+	signer      Signer
+	authMethod  string
+}
+
+type Signer interface {
+	SignMessage(ctx context.Context, message []byte) ([]byte, error)
+}
+
+func NewInProcessSigner(privateKey string, algorithm CryptoAlgorithm) (Signer, error) {
+	if privateKey == "" {
+		return nil, fmt.Errorf("%s private key (hex) is required", algorithm)
+	}
+
+	// Decode private key from hex
+	privateKeyBytes, err := hex.DecodeString(privateKey)
+	if err != nil {
+		return nil, fmt.Errorf("invalid hex private key format: %w", err)
+	}
+
+	return &InProcessSigner{
+		privateKey:      privateKeyBytes,
+		cryptoAlgorithm: algorithm,
+	}, nil
 }
 
 // GetToken retrieves the registry JWT token using cryptographic authentication
@@ -42,19 +63,9 @@ func (c *CryptoProvider) GetToken(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("%s domain is required", c.authMethod)
 	}
 
-	if c.privateKey == "" {
-		return "", fmt.Errorf("%s private key (hex) is required", c.authMethod)
-	}
-
-	// Decode private key from hex
-	privateKeyBytes, err := hex.DecodeString(c.privateKey)
-	if err != nil {
-		return "", fmt.Errorf("invalid hex private key format: %w", err)
-	}
-
 	// Generate current timestamp
 	timestamp := time.Now().UTC().Format(time.RFC3339)
-	signedTimestamp, err := c.signMessage(privateKeyBytes, []byte(timestamp))
+	signedTimestamp, err := c.signer.SignMessage(ctx, []byte(timestamp))
 	if err != nil {
 		return "", fmt.Errorf("failed to sign timestamp: %w", err)
 	}
@@ -69,27 +80,40 @@ func (c *CryptoProvider) GetToken(ctx context.Context) (string, error) {
 	return registryToken, nil
 }
 
-func (c *CryptoProvider) signMessage(privateKeyBytes []byte, message []byte) ([]byte, error) {
+type InProcessSigner struct {
+	privateKey      []byte
+	cryptoAlgorithm CryptoAlgorithm
+}
+
+func (c *InProcessSigner) SignMessage(ctx context.Context, message []byte) ([]byte, error) {
+	fmt.Printf("Signing in process using key algorithm %s\n", c.cryptoAlgorithm)
+
 	switch c.cryptoAlgorithm {
 	case AlgorithmEd25519:
-		if len(privateKeyBytes) != ed25519.SeedSize {
-			return nil, fmt.Errorf("invalid seed length: expected %d bytes, got %d", ed25519.SeedSize, len(privateKeyBytes))
+		if len(c.privateKey) != ed25519.SeedSize {
+			return nil, fmt.Errorf("invalid seed length: expected %d bytes, got %d", ed25519.SeedSize, len(c.privateKey))
 		}
 
-		privateKey := ed25519.NewKeyFromSeed(privateKeyBytes)
+		privateKey := ed25519.NewKeyFromSeed(c.privateKey)
+
+		PrintEd25519KeyInfo(privateKey.Public().(ed25519.PublicKey))
+
 		signature := ed25519.Sign(privateKey, message)
 		return signature, nil
 	case AlgorithmECDSAP384:
-		if len(privateKeyBytes) != 48 {
-			return nil, fmt.Errorf("invalid seed length for ECDSA P-384: expected 48 bytes, got %d", len(privateKeyBytes))
+		if len(c.privateKey) != 48 {
+			return nil, fmt.Errorf("invalid seed length for ECDSA P-384: expected 48 bytes, got %d", len(c.privateKey))
 		}
 
 		digest := sha512.Sum384(message)
 		curve := elliptic.P384()
-		privateKey, err := ecdsa.ParseRawPrivateKey(curve, privateKeyBytes)
+		privateKey, err := ecdsa.ParseRawPrivateKey(curve, c.privateKey)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse ECDSA private key: %w", err)
 		}
+
+		PrintEcdsaKeyInfo("ecdsap384", privateKey.PublicKey)
+
 		r, s, err := ecdsa.Sign(rand.Reader, privateKey, digest[:])
 		if err != nil {
 			return nil, fmt.Errorf("failed to sign message: %w", err)
@@ -109,6 +133,19 @@ func (c *CryptoProvider) NeedsLogin() bool {
 // Login is not needed for cryptographic auth since authentication is cryptographic
 func (c *CryptoProvider) Login(_ context.Context) error {
 	return nil
+}
+
+func PrintEd25519KeyInfo(pubKey ed25519.PublicKey) {
+	pubKeyString := base64.StdEncoding.EncodeToString(pubKey)
+	fmt.Print("Expected proof record:\n")
+	fmt.Printf("v=MCPv1; k=ed25519; p=%s\n", pubKeyString)
+}
+
+func PrintEcdsaKeyInfo(k string, pubKey ecdsa.PublicKey) {
+	compressed := elliptic.MarshalCompressed(pubKey.Curve, pubKey.X, pubKey.Y)
+	pubKeyString := base64.StdEncoding.EncodeToString(compressed)
+	fmt.Print("Expected proof record:\n")
+	fmt.Printf("v=MCPv1; k=%s; p=%s\n", k, pubKeyString)
 }
 
 // exchangeTokenForRegistry exchanges signature for a registry JWT token

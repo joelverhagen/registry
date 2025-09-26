@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/modelcontextprotocol/registry/cmd/publisher/auth"
+	"github.com/modelcontextprotocol/registry/cmd/publisher/auth/azurekeyvault"
 )
 
 const (
@@ -18,6 +19,14 @@ const (
 )
 
 type CryptoAlgorithm auth.CryptoAlgorithm
+
+type SignerType string
+
+const (
+	NoSignerType            SignerType = "no-signer"
+	InProcessSignerType     SignerType = "in-process"
+	AzureKeyVaultSignerType SignerType = "azure-key-vault"
+)
 
 func (c *CryptoAlgorithm) String() string {
 	return string(*c)
@@ -45,17 +54,50 @@ func LoginCommand(args []string) error {
 	var privateKey string
 	var cryptoAlgorithm CryptoAlgorithm = CryptoAlgorithm(auth.AlgorithmEd25519)
 	var registryURL string
+	var vaultURL string
+	var keyName string
+	var signerType SignerType = NoSignerType
+	var argOffset int = 1
 
 	loginFlags.StringVar(&registryURL, "registry", DefaultRegistryURL, "Registry URL")
 
 	if method == "dns" || method == "http" {
 		loginFlags.StringVar(&domain, "domain", "", "Domain name")
-		loginFlags.StringVar(&privateKey, "private-key", "", "Private key (hex)")
-		loginFlags.Var(&cryptoAlgorithm, "algorithm", "Cryptographic algorithm (ed25519, ecdsap384)")
+
+		if len(args) > 1 {
+			switch args[1] {
+			case string(AzureKeyVaultSignerType):
+				signerType = AzureKeyVaultSignerType
+				loginFlags.StringVar(&vaultURL, "vault-url", "", "Full URL for the Azure Key Vault (e.g., https://my-vault.vault.azure.net/)")
+				loginFlags.StringVar(&keyName, "key-name", "", "Name of the key in the Azure Key Vault")
+				argOffset = 2
+			}
+		}
+
+		if signerType == NoSignerType {
+			signerType = InProcessSignerType
+			loginFlags.StringVar(&privateKey, "private-key", "", "Private key (hex)")
+			loginFlags.Var(&cryptoAlgorithm, "algorithm", "Cryptographic algorithm (ed25519, ecdsap384)")
+		}
 	}
 
-	if err := loginFlags.Parse(args[1:]); err != nil {
+	if err := loginFlags.Parse(args[argOffset:]); err != nil {
 		return err
+	}
+
+	var signer auth.Signer
+	var err error
+	switch signerType {
+	case AzureKeyVaultSignerType:
+		signer, err = azurekeyvault.GetSignatureProvider(vaultURL, keyName)
+		if err != nil {
+			return err
+		}
+	case InProcessSignerType:
+		signer, err = auth.NewInProcessSigner(privateKey, auth.CryptoAlgorithm(cryptoAlgorithm))
+		if err != nil {
+			return err
+		}
 	}
 
 	// Create auth provider based on method
@@ -66,15 +108,15 @@ func LoginCommand(args []string) error {
 	case "github-oidc":
 		authProvider = auth.NewGitHubOIDCProvider(registryURL)
 	case "dns":
-		if domain == "" || privateKey == "" {
-			return errors.New("dns authentication requires --domain and --private-key")
+		if domain == "" {
+			return errors.New("dns authentication requires --domain")
 		}
-		authProvider = auth.NewDNSProvider(registryURL, domain, privateKey, auth.CryptoAlgorithm(cryptoAlgorithm))
+		authProvider = auth.NewDNSProvider(registryURL, domain, &signer)
 	case "http":
-		if domain == "" || privateKey == "" {
-			return errors.New("http authentication requires --domain and --private-key")
+		if domain == "" {
+			return errors.New("http authentication requires --domain")
 		}
-		authProvider = auth.NewHTTPProvider(registryURL, domain, privateKey, auth.CryptoAlgorithm(cryptoAlgorithm))
+		authProvider = auth.NewHTTPProvider(registryURL, domain, &signer)
 	case "none":
 		authProvider = auth.NewNoneProvider(registryURL)
 	default:
