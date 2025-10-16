@@ -16,20 +16,36 @@ type Transport struct {
 	Headers []KeyValueInput `json:"headers,omitempty"`
 }
 
-// Package represents a package configuration
+// Package represents a package configuration.
+// The RegistryType field determines which other fields are relevant:
+//   - NPM:   RegistryType, Identifier (package name), Version, RegistryBaseURL (optional)
+//   - PyPI:  RegistryType, Identifier (package name), Version, RegistryBaseURL (optional)
+//   - NuGet: RegistryType, Identifier (package ID), Version, RegistryBaseURL (optional)
+//   - OCI:   RegistryType, Identifier (full image reference like "ghcr.io/owner/repo:tag")
+//   - MCPB:  RegistryType, Identifier (download URL), FileSHA256 (required)
 type Package struct {
-	// RegistryType indicates how to download packages (e.g., "npm", "pypi", "oci", "mcpb")
+	// RegistryType indicates how to download packages (e.g., "npm", "pypi", "oci", "nuget", "mcpb")
 	RegistryType string `json:"registryType" minLength:"1"`
-	// RegistryBaseURL is the base URL of the package registry
+	// RegistryBaseURL is the base URL of the package registry (used by npm, pypi, nuget; not used by oci, mcpb)
 	RegistryBaseURL string `json:"registryBaseUrl,omitempty"`
-	// Identifier is the package identifier - either a package name (for registries) or URL (for direct downloads)
-	Identifier           string          `json:"identifier" minLength:"1"`
-	Version              string          `json:"version" minLength:"1"`
-	FileSHA256           string          `json:"fileSha256,omitempty"`
-	RunTimeHint          string          `json:"runtimeHint,omitempty"`
-	Transport            Transport       `json:"transport,omitempty"`
-	RuntimeArguments     []Argument      `json:"runtimeArguments,omitempty"`
-	PackageArguments     []Argument      `json:"packageArguments,omitempty"`
+	// Identifier is the package identifier:
+	//   - For NPM/PyPI/NuGet: package name or ID
+	//   - For OCI: full image reference (e.g., "ghcr.io/owner/repo:v1.0.0")
+	//   - For MCPB: direct download URL
+	Identifier string `json:"identifier" minLength:"1"`
+	// Version is the package version (used by npm, pypi, nuget; not used by oci, mcpb where version is in the identifier)
+	Version string `json:"version,omitempty" minLength:"1"`
+	// FileSHA256 is the SHA-256 hash for integrity verification (required for mcpb, optional for others)
+	FileSHA256 string `json:"fileSha256,omitempty"`
+	// RunTimeHint suggests the appropriate runtime for the package
+	RunTimeHint string `json:"runtimeHint,omitempty"`
+	// Transport is required and specifies the transport protocol configuration
+	Transport Transport `json:"transport"`
+	// RuntimeArguments are passed to the package's runtime command (e.g., docker, npx)
+	RuntimeArguments []Argument `json:"runtimeArguments,omitempty"`
+	// PackageArguments are passed to the package's binary
+	PackageArguments []Argument `json:"packageArguments,omitempty"`
+	// EnvironmentVariables are set when running the package
 	EnvironmentVariables []KeyValueInput `json:"environmentVariables,omitempty"`
 }
 
@@ -48,7 +64,7 @@ const (
 	FormatString   Format = "string"
 	FormatNumber   Format = "number"
 	FormatBoolean  Format = "boolean"
-	FormatFilePath Format = "file_path"
+	FormatFilePath Format = "filepath"
 )
 
 // Input represents a configuration input
@@ -89,4 +105,19 @@ type Argument struct {
 	Name               string       `json:"name,omitempty"`
 	IsRepeated         bool         `json:"isRepeated,omitempty"`
 	ValueHint          string       `json:"valueHint,omitempty"`
+}
+
+// Icon represents an optionally-sized icon that can be displayed in a user interface
+type Icon struct {
+	// Src is a standard URI pointing to an icon resource (HTTPS URL only for registry)
+	Src string `json:"src" required:"true" format:"uri" maxLength:"255"`
+	// MimeType is an optional MIME type override if the source MIME type is missing or generic
+	MimeType *string `json:"mimeType,omitempty" enum:"image/png,image/jpeg,image/jpg,image/svg+xml,image/webp"`
+	// Sizes is an optional array of strings that specify sizes at which the icon can be used
+	// Each string should be in WxH format (e.g., "48x48", "96x96") or "any" for scalable formats
+	Sizes []string `json:"sizes,omitempty" pattern:"^(\\d+x\\d+|any)$"`
+	// Theme is an optional specifier for the theme this icon is designed for
+	// "light" indicates the icon is designed for light backgrounds
+	// "dark" indicates the icon is designed for dark backgrounds
+	Theme *string `json:"theme,omitempty" enum:"light,dark"`
 }
